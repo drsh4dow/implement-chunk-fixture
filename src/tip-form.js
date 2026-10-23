@@ -42,6 +42,23 @@ export function readTipForm(input) {
   return { kind: "amounts", ...computeTip(billCents, percent, people) };
 }
 
+// Copy is fixed by product decision (standing orders 10 and 14).
+const FIELD_MESSAGES = {
+  bill: "Enter a bill of $0.00 or more",
+  tip: "Enter a tip between 0 and 100%",
+  people: "Enter at least 1 person",
+};
+
+/**
+ * The message that tells the person how to fix an invalid field.
+ *
+ * @param {TipField} field
+ * @returns {string}
+ */
+export function fieldMessage(field) {
+  return FIELD_MESSAGES[field];
+}
+
 function parseNumber(text, pattern) {
   const trimmed = text.trim();
   if (!pattern.test(trimmed)) {
