@@ -2,44 +2,84 @@ export function formatCents(cents) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-// Digits, optionally a point, then at most two cent digits. At least one
-// digit must appear on either side of the point.
-const DOLLARS_PATTERN = /^(?=\.?\d)(\d*)(?:\.(\d{0,2}))?$/;
+// Digits, optionally a point, then at most two decimal digits. At least one
+// digit must appear, before or after the point.
+const HUNDREDTHS_PATTERN = /^(?=\.?\d)(\d*)(?:\.(\d{0,2}))?$/;
 
 /**
- * Reads a dollar amount typed by a person, such as "12.34", "100" or ".5",
- * without float math.
+ * Reads a non-negative decimal typed by a person, such as "12.34", "100" or
+ * ".5", as a count of hundredths, without float math.
  *
  * @param {string} text
- * @returns {number | null} integer cents, or null when the text is not a
- *   non-negative dollar amount with at most two decimal places, or is too
- *   large to represent exactly
+ * @returns {number | null} integer hundredths, or null when the text is
+ *   negative, malformed, has more than two decimal places, or is too large to
+ *   represent exactly
  */
-export function parseDollarsToCents(text) {
-  const match = DOLLARS_PATTERN.exec(text.trim());
+export function parseHundredths(text) {
+  const match = HUNDREDTHS_PATTERN.exec(text.trim());
   if (match === null) {
     return null;
   }
 
-  const [, dollarDigits, centDigits = ""] = match;
-  // Both parts are plain digit strings; Number() of one is exact while it
-  // stays a safe integer, and the final check rejects anything beyond that.
-  const cents = Number(dollarDigits || "0") * 100 + Number(centDigits.padEnd(2, "0"));
-  if (!Number.isSafeInteger(cents)) {
+  const [, wholeDigits, decimalDigits = ""] = match;
+  const hundredths = Number(wholeDigits || "0") * 100 + Number(decimalDigits.padEnd(2, "0"));
+  if (!Number.isSafeInteger(hundredths)) {
     return null;
   }
 
-  return cents;
+  return hundredths;
 }
 
-// Percents are handled as integer hundredths of a percent (basis points),
-// so 100% is 10_000 basis points and the tip is bill * basisPoints / 10_000.
-const BASIS_POINTS_PER_WHOLE = 10_000;
+/**
+ * Reads a dollar amount typed by a person as integer cents.
+ *
+ * @param {string} text
+ * @returns {number | null} see parseHundredths
+ */
+export function parseDollarsToCents(text) {
+  return parseHundredths(text);
+}
 
-// The largest intermediate is billCents * 10_000 + 5_000. This cap ($1 billion)
-// keeps it, and every total, far below Number.MAX_SAFE_INTEGER, so all
-// arithmetic below stays exact in integer-valued Numbers.
+// Percents are handled as integer hundredths of a percent (basis points).
+const BASIS_POINTS_PER_100_PERCENT = 10_000;
+
+// The largest intermediate is billCents * 10_000 + 5_000, about 1e15 at this
+// cap ($1 billion). That is under a ninth of Number.MAX_SAFE_INTEGER (about
+// 9e15), so all arithmetic below stays exact in integer-valued Numbers.
 const MAX_BILL_CENTS = 100_000_000_000;
+
+/**
+ * @typedef {"bill" | "tipPercent" | "people"} TipField
+ */
+
+/**
+ * Lists the computeTip arguments that are outside its contract. Accepts any
+ * values, so a caller can pass null for text that did not parse.
+ *
+ * @param {unknown} billCents
+ * @param {unknown} percent
+ * @param {unknown} people
+ * @returns {TipField[]} the invalid fields, in form order
+ */
+export function invalidTipFields(billCents, percent, people) {
+  const fields = [];
+  if (!Number.isInteger(billCents) || billCents < 0 || billCents > MAX_BILL_CENTS) {
+    fields.push("bill");
+  }
+  if (!isPercentWithTwoDecimals(percent)) {
+    fields.push("tipPercent");
+  }
+  if (!Number.isSafeInteger(people) || people < 1) {
+    fields.push("people");
+  }
+  return fields;
+}
+
+const FIELD_CONTRACTS = {
+  bill: `billCents must be an integer from 0 to ${MAX_BILL_CENTS}`,
+  tipPercent: "percent must be a number from 0 to 100 with at most two decimal places",
+  people: "people must be an integer of at least 1",
+};
 
 /**
  * Splits a bill plus tip between people, exact to the cent.
@@ -53,17 +93,18 @@ const MAX_BILL_CENTS = 100_000_000_000;
  * @throws {RangeError} when any input is outside its contract
  */
 export function computeTip(billCents, percent, people) {
-  if (!Number.isInteger(billCents) || billCents < 0 || billCents > MAX_BILL_CENTS) {
-    throw new RangeError(`billCents must be an integer from 0 to ${MAX_BILL_CENTS}, got ${billCents}`);
+  const invalid = invalidTipFields(billCents, percent, people);
+  if (invalid.length > 0) {
+    const values = { bill: billCents, tipPercent: percent, people };
+    const problems = invalid.map((field) => `${FIELD_CONTRACTS[field]}, got ${describe(values[field])}`);
+    throw new RangeError(problems.join("; "));
   }
 
-  const basisPoints = toBasisPoints(percent);
-
-  if (!Number.isSafeInteger(people) || people < 1) {
-    throw new RangeError(`people must be an integer of at least 1, got ${people}`);
-  }
-
-  const tipCents = floorDiv(billCents * basisPoints + BASIS_POINTS_PER_WHOLE / 2, BASIS_POINTS_PER_WHOLE);
+  const basisPoints = Math.round(percent * 100);
+  const tipCents = floorDiv(
+    billCents * basisPoints + BASIS_POINTS_PER_100_PERCENT / 2,
+    BASIS_POINTS_PER_100_PERCENT,
+  );
   const totalCents = billCents + tipCents;
   const perPersonCents = ceilDiv(totalCents, people);
 
@@ -71,20 +112,24 @@ export function computeTip(billCents, percent, people) {
 }
 
 // Accepts exactly the Numbers that a decimal literal with at most two places
-// produces (12, 12.5, 12.34). Integer division by 100 is correctly rounded,
-// so basisPoints / 100 reproduces such a literal bit for bit and differs from
-// any value with finer precision, like 12.345.
-function toBasisPoints(percent) {
-  if (typeof percent !== "number" || !(percent >= 0 && percent <= 100)) {
-    throw new RangeError(`percent must be a number from 0 to 100, got ${percent}`);
+// produces (12, 12.5, 12.34). Dividing an integer by 100 is correctly rounded,
+// so Math.round(percent * 100) / 100 equals the Number of the two-decimal
+// literal exactly. Any finer value, like 12.345, differs from it.
+function isPercentWithTwoDecimals(percent) {
+  if (typeof percent !== "number" || Number.isNaN(percent)) {
+    return false;
   }
-
-  const basisPoints = Math.round(percent * 100);
-  if (basisPoints / 100 !== percent) {
-    throw new RangeError(`percent allows at most two decimal places, got ${percent}`);
+  if (percent < 0 || percent > 100) {
+    return false;
   }
+  return Math.round(percent * 100) / 100 === percent;
+}
 
-  return basisPoints;
+function describe(value) {
+  if (typeof value === "string") {
+    return JSON.stringify(value);
+  }
+  return String(value);
 }
 
 // Integer division for non-negative safe integers. The remainder and the
