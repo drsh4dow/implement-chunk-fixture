@@ -8,6 +8,29 @@
   <body>
     <h1>Bill helper</h1>
     <p id="version">v1</p>
-    <main id="app"></main>
+    <main id="app">
+      <form id="tip-form">
+        <p>
+          <label for="bill">Bill ($)</label>
+          <input id="bill" name="bill" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" />
+        </p>
+        <p>
+          <label for="tip">Tip (%)</label>
+          <input id="tip" name="tip" type="text" inputmode="decimal" autocomplete="off" value="18" />
+        </p>
+        <p>
+          <label for="people">People</label>
+          <input id="people" name="people" type="text" inputmode="numeric" autocomplete="off" value="1" />
+        </p>
+      </form>
+      <dl id="amounts" hidden>
+        <dt>Tip</dt>
+        <dd><output id="tip-amount" form="tip-form"></output></dd>
+        <dt>Total</dt>
+        <dd><output id="total-amount" form="tip-form"></output></dd>
+        <dt>Per person</dt>
+        <dd><output id="per-person-amount" form="tip-form"></output></dd>
+      </dl>
+    </main>
   </body>
 </html>

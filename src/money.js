@@ -2,6 +2,36 @@ export function formatCents(cents) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// Digits, optionally a point, then at most two cent digits. At least one
+// digit must appear on either side of the point.
+const DOLLARS_PATTERN = /^(?=\.?\d)(\d*)(?:\.(\d{0,2}))?$/;
+
+/**
+ * Reads a dollar amount typed by a person, such as "12.34", "100" or ".5",
+ * without float math.
+ *
+ * @param {string} text
+ * @returns {number | null} integer cents, or null when the text is not a
+ *   non-negative dollar amount with at most two decimal places, or is too
+ *   large to represent exactly
+ */
+export function parseDollarsToCents(text) {
+  const match = DOLLARS_PATTERN.exec(text.trim());
+  if (match === null) {
+    return null;
+  }
+
+  const [, dollarDigits, centDigits = ""] = match;
+  // Both parts are plain digit strings; Number() of one is exact while it
+  // stays a safe integer, and the final check rejects anything beyond that.
+  const cents = Number(dollarDigits || "0") * 100 + Number(centDigits.padEnd(2, "0"));
+  if (!Number.isSafeInteger(cents)) {
+    return null;
+  }
+
+  return cents;
+}
+
 // Percents are handled as integer hundredths of a percent (basis points),
 // so 100% is 10_000 basis points and the tip is bill * basisPoints / 10_000.
 const BASIS_POINTS_PER_WHOLE = 10_000;
