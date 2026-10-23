@@ -1,40 +1,26 @@
-import { computeTip, parseDollarsToCents } from "./money.js";
+import { computeTip, invalidTipFields, parseDollarsToCents, parseHundredths } from "./money.js";
 
-const PERCENT_PATTERN = /^\d+(?:\.\d+)?$/;
 const PEOPLE_PATTERN = /^\d+$/;
 
 /**
- * @typedef {"bill" | "tip" | "people"} TipField
+ * @typedef {import("./money.js").TipField} TipField
  * @typedef {{ kind: "amounts", tipCents: number, totalCents: number, perPersonCents: number }} TipAmounts
  * @typedef {{ kind: "invalid", fields: TipField[] }} TipInvalid
  */
 
 /**
  * Maps the raw text of the tip form to the amounts to show, or to the list of
- * fields whose text computeTip would not accept.
+ * fields whose text does not parse or that computeTip rejects.
  *
- * @param {{ bill: string, tip: string, people: string }} input raw input values
+ * @param {{ bill: string, tipPercent: string, people: string }} input raw input values
  * @returns {TipAmounts | TipInvalid} invalid fields are listed in form order
  */
 export function readTipForm(input) {
   const billCents = parseDollarsToCents(input.bill);
-  const percent = parseNumber(input.tip, PERCENT_PATTERN);
-  const people = parseNumber(input.people, PEOPLE_PATTERN);
+  const percent = parsePercent(input.tipPercent);
+  const people = parsePeople(input.people);
 
-  // computeTip owns the limits. Each field is checked alone, paired with
-  // values known to be valid, so a rejection names exactly that field.
-  /** @type {TipField[]} */
-  const fields = [];
-  if (billCents === null || !computeTipAccepts(billCents, 0, 1)) {
-    fields.push("bill");
-  }
-  if (percent === null || !computeTipAccepts(0, percent, 1)) {
-    fields.push("tip");
-  }
-  if (people === null || !computeTipAccepts(0, 0, people)) {
-    fields.push("people");
-  }
-
+  const fields = invalidTipFields(billCents, percent, people);
   if (fields.length > 0) {
     return { kind: "invalid", fields };
   }
@@ -42,10 +28,11 @@ export function readTipForm(input) {
   return { kind: "amounts", ...computeTip(billCents, percent, people) };
 }
 
-// Copy is fixed by product decision (standing orders 10 and 14).
+// The message text is a product decision (#4). Change it only with the
+// product owner.
 const FIELD_MESSAGES = {
   bill: "Enter a bill of $0.00 or more",
-  tip: "Enter a tip between 0 and 100%",
+  tipPercent: "Enter a tip between 0 and 100%",
   people: "Enter at least 1 person",
 };
 
@@ -59,22 +46,18 @@ export function fieldMessage(field) {
   return FIELD_MESSAGES[field];
 }
 
-function parseNumber(text, pattern) {
+function parsePercent(text) {
+  const hundredths = parseHundredths(text);
+  if (hundredths === null) {
+    return null;
+  }
+  return hundredths / 100;
+}
+
+function parsePeople(text) {
   const trimmed = text.trim();
-  if (!pattern.test(trimmed)) {
+  if (!PEOPLE_PATTERN.test(trimmed)) {
     return null;
   }
   return Number(trimmed);
-}
-
-function computeTipAccepts(billCents, percent, people) {
-  try {
-    computeTip(billCents, percent, people);
-    return true;
-  } catch (error) {
-    if (error instanceof RangeError) {
-      return false;
-    }
-    throw error;
-  }
 }

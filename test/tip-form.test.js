@@ -2,7 +2,22 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fieldMessage, readTipForm } from "../src/tip-form.js";
 
-const valid = { bill: "100.00", tip: "18", people: "3" };
+const valid = { bill: "100.00", tipPercent: "18", people: "3" };
+
+// Exact message text from the product decision on #4.
+const BILL_MESSAGE = "Enter a bill of $0.00 or more";
+const TIP_MESSAGE = "Enter a tip between 0 and 100%";
+const PEOPLE_MESSAGE = "Enter at least 1 person";
+
+function readWith(input) {
+  return readTipForm({ ...valid, ...input });
+}
+
+function messagesWith(input) {
+  const result = readWith(input);
+  assert.equal(result.kind, "invalid", JSON.stringify(input));
+  return result.fields.map(fieldMessage);
+}
 
 test("readTipForm turns the ticket example into amounts", () => {
   assert.deepEqual(readTipForm(valid), {
@@ -14,14 +29,14 @@ test("readTipForm turns the ticket example into amounts", () => {
 });
 
 test("readTipForm accepts the boundaries of each field", () => {
-  assert.deepEqual(readTipForm({ bill: "0", tip: "0", people: "1" }), {
+  assert.deepEqual(readTipForm({ bill: "0", tipPercent: "0", people: "1" }), {
     kind: "amounts",
     tipCents: 0,
     totalCents: 0,
     perPersonCents: 0,
   });
-  assert.deepEqual(readTipForm({ bill: "1000000000", tip: "100", people: "1" }).kind, "amounts");
-  assert.deepEqual(readTipForm({ bill: "12.34", tip: "12.5", people: "2" }), {
+  assert.equal(readTipForm({ bill: "1000000000", tipPercent: "100", people: "1" }).kind, "amounts");
+  assert.deepEqual(readTipForm({ bill: "12.34", tipPercent: "12.5", people: "2" }), {
     kind: "amounts",
     tipCents: 154,
     totalCents: 1388,
@@ -29,9 +44,10 @@ test("readTipForm accepts the boundaries of each field", () => {
   });
 });
 
-function readWith(input) {
-  return readTipForm({ ...valid, ...input });
-}
+test("readTipForm reads a tip with a missing whole or decimal part, like the bill", () => {
+  assert.equal(readTipForm({ bill: "100.00", tipPercent: ".5", people: "1" }).tipCents, 50);
+  assert.equal(readTipForm({ bill: "100.00", tipPercent: "7.", people: "1" }).tipCents, 700);
+});
 
 test("readTipForm marks a bad bill invalid", () => {
   for (const bill of ["", "abc", "-1", "1.234", "1000000000.01"]) {
@@ -40,8 +56,14 @@ test("readTipForm marks a bad bill invalid", () => {
 });
 
 test("readTipForm marks a bad tip invalid", () => {
-  for (const tip of ["", "abc", "-1", "100.01", "101", "12.345"]) {
-    assert.deepEqual(readWith({ tip }), { kind: "invalid", fields: ["tip"] }, JSON.stringify(tip));
+  for (const tipPercent of ["", "abc", "-1", "100.01", "101", "12.345", "1e1", "99999999999999999999"]) {
+    assert.deepEqual(readWith({ tipPercent }), { kind: "invalid", fields: ["tipPercent"] }, JSON.stringify(tipPercent));
+  }
+});
+
+test("readTipForm marks a tip with more than two decimals invalid", () => {
+  for (const tipPercent of ["18.000", "12.345", "100.000000000000001"]) {
+    assert.deepEqual(readWith({ tipPercent }), { kind: "invalid", fields: ["tipPercent"] }, JSON.stringify(tipPercent));
   }
 });
 
@@ -52,22 +74,11 @@ test("readTipForm marks a bad people count invalid", () => {
 });
 
 test("readTipForm lists every invalid field in form order", () => {
-  assert.deepEqual(readTipForm({ bill: "", tip: "200", people: "0" }), {
+  assert.deepEqual(readTipForm({ bill: "", tipPercent: "200", people: "0" }), {
     kind: "invalid",
-    fields: ["bill", "tip", "people"],
+    fields: ["bill", "tipPercent", "people"],
   });
 });
-
-// Copy from standing orders 10 and 14.
-const BILL_MESSAGE = "Enter a bill of $0.00 or more";
-const TIP_MESSAGE = "Enter a tip between 0 and 100%";
-const PEOPLE_MESSAGE = "Enter at least 1 person";
-
-function messagesWith(input) {
-  const result = readWith(input);
-  assert.equal(result.kind, "invalid", JSON.stringify(input));
-  return result.fields.map(fieldMessage);
-}
 
 test("a bad bill reads as the bill message", () => {
   for (const bill of ["", "-5", "1.234"]) {
@@ -76,8 +87,8 @@ test("a bad bill reads as the bill message", () => {
 });
 
 test("a bad tip reads as the tip message", () => {
-  for (const tip of ["101", "12.345"]) {
-    assert.deepEqual(messagesWith({ tip }), [TIP_MESSAGE], JSON.stringify(tip));
+  for (const tipPercent of ["101", "12.345", "18.000"]) {
+    assert.deepEqual(messagesWith({ tipPercent }), [TIP_MESSAGE], JSON.stringify(tipPercent));
   }
 });
 
@@ -88,6 +99,6 @@ test("a bad people count reads as the people message", () => {
 });
 
 test("several bad fields read as one message each, in form order", () => {
-  const result = readTipForm({ bill: "-5", tip: "101", people: "0" });
+  const result = readTipForm({ bill: "-5", tipPercent: "101", people: "0" });
   assert.deepEqual(result.fields.map(fieldMessage), [BILL_MESSAGE, TIP_MESSAGE, PEOPLE_MESSAGE]);
 });

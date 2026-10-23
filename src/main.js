@@ -11,12 +11,10 @@ const perPersonAmount = document.querySelector("#per-person-amount");
 function render() {
   const result = readTipForm({
     bill: form.elements.bill.value,
-    tip: form.elements.tip.value,
+    tipPercent: form.elements.tipPercent.value,
     people: form.elements.people.value,
   });
 
-  // Amounts show only for input computeTip accepts; otherwise each invalid
-  // field gets its own message so every problem is visible at once.
   if (result.kind === "invalid") {
     messages.replaceChildren(...result.fields.map(renderMessage));
     amounts.hidden = true;

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeTip, formatCents } from "../src/money.js";
+import { computeTip, formatCents, invalidTipFields, parseDollarsToCents } from "../src/money.js";
+
+// The product cap on a bill: $1,000,000,000.
+const MAX_BILL_CENTS = 100_000_000_000;
 
 test("formatCents renders dollars", () => {
   assert.equal(formatCents(1234), "$12.34");
@@ -64,6 +67,15 @@ test("computeTip rejects an invalid bill", () => {
   }
 });
 
+test("computeTip accepts a bill at the $1 billion cap and rejects one cent more", () => {
+  assert.deepEqual(computeTip(MAX_BILL_CENTS, 100, 1), {
+    tipCents: MAX_BILL_CENTS,
+    totalCents: 2 * MAX_BILL_CENTS,
+    perPersonCents: 2 * MAX_BILL_CENTS,
+  });
+  assert.throws(() => computeTip(MAX_BILL_CENTS + 1, 15, 1), RangeError);
+});
+
 test("computeTip rejects a bill too large for exact cents", () => {
   assert.throws(() => computeTip(Number.MAX_SAFE_INTEGER, 15, 1), RangeError);
 });
@@ -78,4 +90,45 @@ test("computeTip rejects fewer than one person or a fractional count", () => {
   for (const people of [0, -1, 1.5, Number.NaN, "2"]) {
     assert.throws(() => computeTip(1000, 15, people), RangeError, String(people));
   }
+});
+
+test("invalidTipFields lists nothing for valid arguments", () => {
+  assert.deepEqual(invalidTipFields(10000, 18, 3), []);
+});
+
+test("invalidTipFields lists every invalid field in form order", () => {
+  assert.deepEqual(invalidTipFields(-1, 101, 0), ["bill", "tipPercent", "people"]);
+  assert.deepEqual(invalidTipFields(MAX_BILL_CENTS + 1, 18, 1.5), ["bill", "people"]);
+  assert.deepEqual(invalidTipFields(null, 12.345, null), ["bill", "tipPercent", "people"]);
+});
+
+test("parseDollarsToCents reads dollars and cents exactly", () => {
+  assert.equal(parseDollarsToCents("12.34"), 1234);
+  assert.equal(parseDollarsToCents("100"), 10000);
+  assert.equal(parseDollarsToCents("100.00"), 10000);
+  assert.equal(parseDollarsToCents("0"), 0);
+});
+
+test("parseDollarsToCents avoids float rounding", () => {
+  // As floats, 0.29 * 100, 1.15 * 100 and 4.35 * 100 are not whole numbers.
+  assert.equal(parseDollarsToCents("0.29"), 29);
+  assert.equal(parseDollarsToCents("1.15"), 115);
+  assert.equal(parseDollarsToCents("4.35"), 435);
+  assert.equal(parseDollarsToCents("1000000000.00"), 100_000_000_000);
+});
+
+test("parseDollarsToCents accepts a missing dollar or cent part and surrounding spaces", () => {
+  assert.equal(parseDollarsToCents(".5"), 50);
+  assert.equal(parseDollarsToCents("7."), 700);
+  assert.equal(parseDollarsToCents(" 3.25 "), 325);
+});
+
+test("parseDollarsToCents returns null for text that is not a dollar amount", () => {
+  for (const text of ["", " ", ".", "abc", "-5", "+5", "1.234", "1,000", "1e3", "$5", "0x10", "1.2.3", "Infinity"]) {
+    assert.equal(parseDollarsToCents(text), null, JSON.stringify(text));
+  }
+});
+
+test("parseDollarsToCents returns null when the cents would not be an exact Number", () => {
+  assert.equal(parseDollarsToCents("999999999999999999999"), null);
 });
